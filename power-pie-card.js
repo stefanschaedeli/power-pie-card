@@ -7,7 +7,7 @@
  * MIT License
  */
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 // Validated categorical palette (8 slots, light + dark surface variants).
 // Hue order is CVD-safety-optimized — do not reorder or cycle past 8;
@@ -113,6 +113,10 @@ class PowerPieCard extends HTMLElement {
       filter: { include: [{ entity_id: "sensor.*_pwr*" }], exclude: [{ state: "< 1" }] },
       display_unit: "W",
     };
+  }
+
+  static getConfigElement() {
+    return document.createElement("power-pie-card-editor");
   }
 
   setConfig(config) {
@@ -582,6 +586,189 @@ class PowerPieCard extends HTMLElement {
 }
 
 customElements.define("power-pie-card", PowerPieCard);
+
+// --- GUI editor ------------------------------------------------------------
+//
+// Uses HA's native ha-form + selectors. The common filter case (one include
+// glob + one "hide below N W" exclude) gets first-class GUI fields; anything
+// more complex falls back to an object (YAML) sub-editor for just the filter,
+// while every other option stays GUI-editable.
+
+const MANAGED_KEYS = ["title", "total_amount", "display_unit", "decimals",
+  "unknown_text", "other_text", "max_slices", "sort"];
+
+const EDITOR_LABELS = {
+  title: "Title",
+  total_amount: "Total sensor (derives the unmeasured slice)",
+  display_unit: "Display unit",
+  decimals: "Decimals",
+  unknown_text: "Label for unmeasured remainder",
+  other_text: "Label for folded small slices",
+  max_slices: "Max colored slices",
+  sort: "Sort order",
+  filter_pattern: "Include entities matching (glob, e.g. *_pwr*)",
+  filter_min: "Hide entities below (W)",
+  filter: "Filter (advanced — too complex for the simple fields)",
+};
+
+class PowerPieCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._initialized = false;
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    this._analyzeFilter();
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._form) this._form.hass = hass;
+  }
+
+  // Simple-filter detection: at most one include rule using only
+  // entity_id (+ optional domain, kept as passthrough), and at most one
+  // exclude rule of the form {state: "< N"}.
+  _analyzeFilter() {
+    const f = this._config.filter;
+    this._simpleFilter = true;
+    this._includeExtra = {};
+    this._pattern = "";
+    this._min = undefined;
+    if (!f) return;
+    const inc = f.include || [];
+    const exc = f.exclude || [];
+    if (inc.length > 1 || exc.length > 1) { this._simpleFilter = false; return; }
+    if (inc.length === 1) {
+      const rule = { ...inc[0] };
+      delete rule.options;
+      const { entity_id, domain, ...rest } = rule;
+      if (Object.keys(rest).length || !entity_id) { this._simpleFilter = false; return; }
+      this._pattern = entity_id;
+      if (domain) this._includeExtra.domain = domain;
+    }
+    if (exc.length === 1) {
+      const rule = { ...exc[0] };
+      delete rule.options;
+      const keys = Object.keys(rule);
+      const m = keys.length === 1 && keys[0] === "state" &&
+        String(rule.state).match(/^\s*<\s*(-?[\d.]+)\s*$/);
+      if (!m) { this._simpleFilter = false; return; }
+      this._min = Number(m[1]);
+    }
+  }
+
+  async _ensureHaForm() {
+    if (customElements.get("ha-form")) return;
+    // Force HA to register ha-form + selectors by loading a built-in
+    // card editor once (standard custom-card technique).
+    const helpers = await window.loadCardHelpers?.();
+    if (helpers) {
+      const card = await helpers.createCardElement({ type: "entities", entities: [] });
+      await card.constructor.getConfigElement?.();
+    }
+    await customElements.whenDefined("ha-form");
+  }
+
+  async _render() {
+    if (!this._initialized) {
+      this._initialized = true;
+      const style = document.createElement("style");
+      style.textContent = ":host { display: block; } ha-form { display: block; }";
+      this._mount = document.createElement("div");
+      this.shadowRoot.append(style, this._mount);
+      await this._ensureHaForm();
+      this._form = document.createElement("ha-form");
+      this._form.computeLabel = (s) => EDITOR_LABELS[s.name] || s.name;
+      this._form.addEventListener("value-changed", (ev) => this._valueChanged(ev));
+      this._mount.append(this._form);
+    }
+    if (!this._form) return;
+
+    const c = this._config;
+    const schema = [
+      { name: "title", selector: { text: {} } },
+      { name: "total_amount", selector: { entity: { domain: "sensor" } } },
+      {
+        name: "display_unit",
+        selector: { select: { mode: "dropdown", options: [
+          { value: "W", label: "W" }, { value: "kW", label: "kW" },
+        ] } },
+      },
+      { name: "decimals", selector: { number: { min: 0, max: 3, step: 1, mode: "box" } } },
+    ];
+    if (this._simpleFilter) {
+      schema.push(
+        { name: "filter_pattern", selector: { text: {} } },
+        { name: "filter_min", selector: { number: { min: 0, step: 1, mode: "box", unit_of_measurement: "W" } } },
+      );
+    } else {
+      schema.push({ name: "filter", selector: { object: {} } });
+    }
+    schema.push(
+      { name: "unknown_text", selector: { text: {} } },
+      { name: "other_text", selector: { text: {} } },
+      { name: "max_slices", selector: { number: { min: 1, max: 8, step: 1, mode: "box" } } },
+      {
+        name: "sort",
+        selector: { select: { mode: "dropdown", options: [
+          { value: "max", label: "Largest first" }, { value: "none", label: "Config order" },
+        ] } },
+      },
+    );
+
+    const data = {};
+    for (const k of MANAGED_KEYS) if (c[k] !== undefined) data[k] = c[k];
+    if (data.unknown_text === undefined && c.unknownText !== undefined) {
+      data.unknown_text = c.unknownText;
+    }
+    if (this._simpleFilter) {
+      if (this._pattern) data.filter_pattern = this._pattern;
+      if (this._min !== undefined) data.filter_min = this._min;
+    } else if (c.filter !== undefined) {
+      data.filter = c.filter;
+    }
+
+    this._form.schema = schema;
+    this._form.data = data;
+    if (this._hass) this._form.hass = this._hass;
+  }
+
+  _valueChanged(ev) {
+    ev.stopPropagation();
+    const d = ev.detail.value || {};
+    const cfg = { ...this._config };
+    delete cfg.unknownText; // normalize legacy alias on save
+    for (const k of MANAGED_KEYS) {
+      if (d[k] === undefined || d[k] === "") delete cfg[k];
+      else cfg[k] = d[k];
+    }
+    if (this._simpleFilter) {
+      const include = [];
+      if (d.filter_pattern) include.push({ ...this._includeExtra, entity_id: d.filter_pattern });
+      const exclude = [];
+      if (typeof d.filter_min === "number" && d.filter_min > 0) {
+        exclude.push({ state: `< ${d.filter_min}` });
+      }
+      if (include.length || exclude.length) cfg.filter = { include, exclude };
+      else delete cfg.filter;
+    } else if (d.filter !== undefined) {
+      cfg.filter = d.filter;
+    }
+    this._config = cfg;
+    this._analyzeFilter();
+    this.dispatchEvent(new CustomEvent("config-changed", {
+      detail: { config: cfg },
+      bubbles: true,
+      composed: true,
+    }));
+  }
+}
+
+customElements.define("power-pie-card-editor", PowerPieCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({

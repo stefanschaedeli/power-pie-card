@@ -49,6 +49,14 @@ type: module
 
 ## Configuration
 
+The card has a **visual editor** (dashboard → edit card): all options are editable via
+GUI fields, including the filter for the common case (one include glob + a
+"hide below N W" threshold). Filters too complex for the simple fields — multiple
+include rules, area/domain rules, non-threshold excludes — show up as a structured
+object sub-editor instead, without losing anything.
+
+YAML reference:
+
 ```yaml
 type: custom:power-pie-card
 title: Aktuelle Strom Verbraucher
