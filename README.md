@@ -4,7 +4,10 @@ A dependency-free doughnut chart card for Home Assistant — built as a modern
 replacement for the unmaintained `pie-chart-card`, with entity filtering built in
 (no `auto-entities` wrapper needed).
 
-![light](docs/card-light.png)
+![live card](docs/live-card.png)
+
+Dark theme:
+
 ![dark](docs/card-dark.png)
 
 ## Why
@@ -55,6 +58,8 @@ GUI fields, including the filter for the common case (one include glob + a
 include rules, area/domain rules, non-threshold excludes — show up as a structured
 object sub-editor instead, without losing anything.
 
+![visual editor](docs/visual-editor.png)
+
 YAML reference:
 
 ```yaml
@@ -101,6 +106,14 @@ filter:
 Open `dev/index.html` in a browser (serve the folder or launch Chrome with
 `--allow-file-access-from-files`) — it renders the card at three sizes against a
 mocked, churning `hass` object with light/dark toggles.
+
+## Acknowledgments
+
+Thanks to [sdelliot](https://github.com/sdelliot) — the original
+[pie-chart-card](https://github.com/sdelliot/pie-chart-card) inspired this card and
+served its users well for years. power-pie-card started as its spiritual successor
+and keeps its configuration (`entities`, `title`, `total_amount`, `unknownText`)
+working unchanged.
 
 ## License
 
