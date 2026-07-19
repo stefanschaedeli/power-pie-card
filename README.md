@@ -83,6 +83,7 @@ filter:
 | `display_unit` | `W` | `W` or `kW`; applied uniformly everywhere. |
 | `decimals` | 0 (W) / 2 (kW) | Fraction digits for displayed values. |
 | `sort` | `max` | `max` (largest first) or `none` (input order). |
+| `slice_gap` | `0.8` | Gap between slices, in % of the circle circumference (0–5; 0 = touching slices). |
 | `max_slices` | 8 | Colored slices before folding into "Other" (8 is also the palette maximum — hues are never cycled). |
 
 ### Notes

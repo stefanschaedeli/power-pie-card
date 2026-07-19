@@ -7,7 +7,7 @@
  * MIT License
  */
 
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 // Validated categorical palette (8 slots, light + dark surface variants).
 // Hue order is CVD-safety-optimized — do not reorder or cycle past 8;
@@ -129,6 +129,7 @@ class PowerPieCard extends HTMLElement {
     c.decimals = Number.isFinite(c.decimals) ? c.decimals : (c.display_unit === "kW" ? 2 : 0);
     c.sort = c.sort === "none" ? "none" : "max";
     c.max_slices = Math.min(Number.isFinite(c.max_slices) ? c.max_slices : 8, PALETTE_LIGHT.length);
+    c.slice_gap = Number.isFinite(c.slice_gap) ? Math.min(Math.max(c.slice_gap, 0), 5) : 0.8;
     c.other_text = c.other_text || "Other";
     this._include = (c.filter && c.filter.include ? c.filter.include : []).map(compileRule);
     this._exclude = (c.filter && c.filter.exclude ? c.filter.exclude : []).map(compileRule);
@@ -466,7 +467,7 @@ class PowerPieCard extends HTMLElement {
 
     // --- doughnut arcs (stroke-dasharray technique, C = 100) ---
     const R = 15.91549431;
-    const GAP = model.slices.length > 1 ? 0.8 : 0;
+    const GAP = model.slices.length > 1 ? this._config.slice_gap : 0;
     let start = 0;
     const seen = new Set();
     for (const s of model.slices) {
@@ -595,7 +596,7 @@ customElements.define("power-pie-card", PowerPieCard);
 // while every other option stays GUI-editable.
 
 const MANAGED_KEYS = ["title", "total_amount", "display_unit", "decimals",
-  "unknown_text", "other_text", "max_slices", "sort"];
+  "unknown_text", "other_text", "max_slices", "sort", "slice_gap"];
 
 const EDITOR_LABELS = {
   title: "Title",
@@ -606,6 +607,7 @@ const EDITOR_LABELS = {
   other_text: "Label for folded small slices",
   max_slices: "Max colored slices",
   sort: "Sort order",
+  slice_gap: "Gap between slices (% of circle)",
   filter_pattern: "Include entities matching (glob, e.g. *_pwr*)",
   filter_min: "Hide entities below (W)",
   filter: "Filter (advanced — too complex for the simple fields)",
@@ -712,6 +714,7 @@ class PowerPieCardEditor extends HTMLElement {
       { name: "unknown_text", selector: { text: {} } },
       { name: "other_text", selector: { text: {} } },
       { name: "max_slices", selector: { number: { min: 1, max: 8, step: 1, mode: "box" } } },
+      { name: "slice_gap", selector: { number: { min: 0, max: 5, step: 0.1, mode: "box" } } },
       {
         name: "sort",
         selector: { select: { mode: "dropdown", options: [
