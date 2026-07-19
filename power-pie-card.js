@@ -7,7 +7,7 @@
  * MIT License
  */
 
-const VERSION = "0.2.1";
+const VERSION = "0.3.0";
 
 // Validated categorical palette (8 slots, light + dark surface variants).
 // Hue order is CVD-safety-optimized — do not reorder or cycle past 8;
@@ -130,6 +130,8 @@ class PowerPieCard extends HTMLElement {
     c.sort = c.sort === "none" ? "none" : "max";
     c.max_slices = Math.min(Number.isFinite(c.max_slices) ? c.max_slices : 8, PALETTE_LIGHT.length);
     c.slice_gap = Number.isFinite(c.slice_gap) ? Math.min(Math.max(c.slice_gap, 0), 5) : 0.8;
+    c.legend = ["auto", "top", "bottom", "left", "right", "none"].includes(c.legend)
+      ? c.legend : "auto";
     c.other_text = c.other_text || "Other";
     this._include = (c.filter && c.filter.include ? c.filter.include : []).map(compileRule);
     this._exclude = (c.filter && c.filter.exclude ? c.filter.exclude : []).map(compileRule);
@@ -172,11 +174,27 @@ class PowerPieCard extends HTMLElement {
         display: flex; flex-direction: column; align-self: stretch;
         scrollbar-width: thin;
       }
-      /* Wide card: doughnut left, legend right */
+      /* legend: auto — wide card flips to doughnut left, legend right */
       @container (min-aspect-ratio: 6/4) {
-        .layout { flex-direction: row; justify-content: center; }
-        .chart { height: 92cqh; }
-        .legend { flex: 0 1 auto; width: auto; max-width: 60cqw; justify-content: center; }
+        .layout.p-auto { flex-direction: row; justify-content: center; }
+        .layout.p-auto .chart { height: 92cqh; }
+        .layout.p-auto .legend { flex: 0 1 auto; width: auto; max-width: 60cqw; justify-content: center; }
+      }
+      /* legend: explicit placements (top/bottom are the column layout,
+         left/right the row layout, none hides it) */
+      .layout.p-top { flex-direction: column-reverse; }
+      .layout.p-left { flex-direction: row-reverse; }
+      .layout.p-right { flex-direction: row; }
+      .layout.p-left, .layout.p-right { justify-content: center; }
+      .layout.p-left .chart, .layout.p-right .chart, .layout.p-none .chart { height: 92cqh; }
+      .layout.p-left .legend, .layout.p-right .legend {
+        flex: 0 1 auto; width: auto; max-width: 60cqw; justify-content: center;
+      }
+      .layout.p-none .legend { display: none; }
+      /* top/bottom: shrink-wrap the legend to its content and center it,
+         instead of stretching names and values to opposite card edges */
+      .layout.p-top .legend, .layout.p-bottom .legend {
+        width: auto; align-self: center; min-width: min(280px, 100%); max-width: 100%;
       }
       svg { width: 100%; height: 100%; display: block; }
       .arc {
@@ -245,7 +263,7 @@ class PowerPieCard extends HTMLElement {
     this._body.className = "body";
 
     this._layoutEl = document.createElement("div");
-    this._layoutEl.className = "layout";
+    this._layoutEl.className = `layout p-${this._config.legend}`;
 
     this._chartEl = document.createElement("div");
     this._chartEl.className = "chart";
@@ -596,7 +614,7 @@ customElements.define("power-pie-card", PowerPieCard);
 // while every other option stays GUI-editable.
 
 const MANAGED_KEYS = ["title", "total_amount", "display_unit", "decimals",
-  "unknown_text", "other_text", "max_slices", "sort", "slice_gap"];
+  "unknown_text", "other_text", "max_slices", "sort", "slice_gap", "legend"];
 
 const EDITOR_LABELS = {
   title: "Title",
@@ -608,6 +626,7 @@ const EDITOR_LABELS = {
   max_slices: "Max colored slices",
   sort: "Sort order",
   slice_gap: "Gap between slices (% of circle)",
+  legend: "Legend position",
   filter_pattern: "Include entities matching (glob, e.g. *_pwr*)",
   filter_min: "Hide entities below (W)",
   filter: "Filter (advanced — too complex for the simple fields)",
@@ -715,6 +734,17 @@ class PowerPieCardEditor extends HTMLElement {
       { name: "other_text", selector: { text: {} } },
       { name: "max_slices", selector: { number: { min: 1, max: 8, step: 1, mode: "box" } } },
       { name: "slice_gap", selector: { number: { min: 0, max: 5, step: 0.1, mode: "box" } } },
+      {
+        name: "legend",
+        selector: { select: { mode: "dropdown", options: [
+          { value: "auto", label: "Auto (responsive)" },
+          { value: "top", label: "Top" },
+          { value: "bottom", label: "Bottom" },
+          { value: "left", label: "Left" },
+          { value: "right", label: "Right" },
+          { value: "none", label: "Hidden" },
+        ] } },
+      },
       {
         name: "sort",
         selector: { select: { mode: "dropdown", options: [
