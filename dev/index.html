@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>power-pie-card dev harness</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 20px; background: #f0f0ee; }
+  body.dark { background: #0d0d0d; color: #fff; }
+  .controls { margin-bottom: 16px; display: flex; gap: 12px; align-items: center; }
+  .stages { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+  .stage { border: 1px dashed #999; }
+  .stage h4 { margin: 4px; font-weight: normal; font-size: 12px; color: #888; position: absolute; }
+  .s375 { width: 375px; height: 420px; }
+  .s800 { width: 800px; height: 320px; }
+  .s1200 { width: 1100px; height: 300px; }
+  ha-card {
+    display: block; background: var(--card-background-color);
+    border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,.15);
+    color: var(--primary-text-color);
+  }
+  ha-card h1 { font-size: 18px; margin: 0; padding: 14px 16px 6px; font-weight: 500; }
+  #log { margin-top: 16px; font: 11px/1.5 monospace; color: #666; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div class="controls">
+  <label><input type="checkbox" id="churn" checked> churn values every 2s</label>
+  <label><input type="checkbox" id="darkmode"> dark mode</label>
+  <span id="tick"></span>
+</div>
+<div class="stages">
+  <div class="stage s375"></div>
+  <div class="stage s800"></div>
+  <div class="stage s1200"></div>
+</div>
+<div id="log"></div>
+
+<script>
+// Minimal ha-card stub (real one is a HA frontend component).
+class HaCard extends HTMLElement {
+  set header(v) {
+    if (!this._h) {
+      this._h = document.createElement("h1");
+      this.prepend(this._h);
+    }
+    this._h.textContent = v;
+  }
+}
+customElements.define("ha-card", HaCard);
+</script>
+<script type="module">
+import "../power-pie-card.js";
+
+const log = (m) => {
+  document.getElementById("log").textContent =
+    `${new Date().toLocaleTimeString()} ${m}\n` +
+    document.getElementById("log").textContent.split("\n").slice(0, 20).join("\n");
+};
+
+// --- mock hass ------------------------------------------------------------
+const mkState = (id, val, unit, name) => ({
+  entity_id: id, state: String(val),
+  attributes: { unit_of_measurement: unit, friendly_name: name },
+});
+
+const base = {
+  "sensor.waermepumpe_pwr": [1240, "W", "Wärmepumpe"],
+  "sensor.boiler_pwr": [980, "W", "Boiler"],
+  "sensor.server_pwr": [410, "W", "Server Rack"],
+  "sensor.kuehlschrank_pwr": [160, "W", "Kühlschrank"],
+  "sensor.tv_wohnzimmer_pwr": [95, "W", "TV Wohnzimmer"],
+  "sensor.geschirrspueler_pwr": [0.4, "W", "Geschirrspüler"],   // < 1 → excluded
+  "sensor.waschmaschine_pwr": [2, "W", "Waschmaschine"],        // hovers around threshold
+  "sensor.buero_pwr": [0.245, "kW", "Büro"],                    // kW source unit
+  "sensor.licht_keller_pwr": [42, "W", "Licht Keller"],
+  "sensor.pool_pumpe_pwr": [310, "W", "Poolpumpe"],
+  "sensor.zisterne_pwr": [18, "W", "Zisterne"],                 // slice 10 → folds
+  "sensor.gartenhaus_pwr": [12, "W", "Gartenhaus"],             // slice 11 → folds
+  "sensor.defekt_pwr": ["unavailable", "W", "Defekt"],          // must drop out
+  "sensor.aussen_temp": [23.5, "°C", "Aussentemperatur"],       // non-matching id
+};
+
+function buildStates() {
+  const states = {};
+  for (const [id, [v, u, n]] of Object.entries(base)) states[id] = mkState(id, v, u, n);
+  const sum = Object.entries(base)
+    .filter(([id]) => id.includes("_pwr"))
+    .reduce((s, [, [v, u]]) => {
+      const n = Number(v);
+      return s + (isFinite(n) ? (u === "kW" ? n * 1000 : n) : 0);
+    }, 0);
+  states["sensor.haus_leistung"] = mkState("sensor.haus_leistung", Math.round(sum + 850), "W", "Haus Leistung");
+  return states;
+}
+
+let dark = new URLSearchParams(location.search).get("dark") === "1";
+document.getElementById("darkmode").checked = dark;
+const hass = { states: buildStates(), themes: { darkMode: dark }, entities: {}, areas: {}, devices: {} };
+
+// --- cards ----------------------------------------------------------------
+const config = {
+  type: "custom:power-pie-card",
+  title: "Aktuelle Strom Verbraucher",
+  total_amount: "sensor.haus_leistung",
+  unknown_text: "Ungemessen",
+  other_text: "Andere",
+  display_unit: "kW",
+  filter: {
+    include: [{ entity_id: "*_pwr*" }],
+    exclude: [{ state: "< 1" }],
+  },
+};
+
+const cards = [];
+for (const stage of document.querySelectorAll(".stage")) {
+  const label = document.createElement("h4");
+  label.textContent = stage.className.replace("stage ", "");
+  stage.append(label);
+  const card = document.createElement("power-pie-card");
+  card.setConfig(JSON.parse(JSON.stringify(config)));
+  card.style.height = "100%";
+  card.style.display = "block";
+  card.hass = hass;
+  stage.append(card);
+  cards.push(card);
+  card.addEventListener("hass-more-info", (e) => log(`more-info: ${e.detail.entityId}`));
+}
+
+function applyTheme() {
+  document.body.classList.toggle("dark", dark);
+  document.body.style.setProperty("--card-background-color", dark ? "#1c1c1c" : "#fff");
+  document.body.style.setProperty("--primary-text-color", dark ? "#e1e1e1" : "#212121");
+  document.body.style.setProperty("--secondary-text-color", dark ? "#9b9b9b" : "#727272");
+  document.body.style.setProperty("--divider-color", dark ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.12)");
+  document.body.style.setProperty("--secondary-background-color", dark ? "rgba(255,255,255,.08)" : "rgba(0,0,0,.06)");
+}
+applyTheme();
+document.getElementById("darkmode").addEventListener("change", (e) => {
+  dark = e.target.checked;
+  applyTheme();
+  push();
+});
+
+// --- churn ----------------------------------------------------------------
+let n = 0;
+function push() {
+  const states = {};
+  for (const [id, st] of Object.entries(hass.states)) states[id] = st;
+  const next = { ...hass, states, themes: { darkMode: dark } };
+  for (const card of cards) card.hass = next;
+}
+
+setInterval(() => {
+  if (!document.getElementById("churn").checked) return;
+  n++;
+  document.getElementById("tick").textContent = `tick ${n}`;
+  for (const [id, [v, u, name]] of Object.entries(base)) {
+    if (!id.includes("_pwr") || !isFinite(Number(v))) continue;
+    // Random walk ±8%; Waschmaschine oscillates across the 1 W threshold.
+    let nv;
+    if (id === "sensor.waschmaschine_pwr") {
+      nv = n % 6 < 3 ? 0.5 : 2 + Math.random() * 3;
+    } else {
+      const cur = Number(hass.states[id].state) * (u === "kW" ? 1 : 1);
+      nv = Math.max(0, cur * (0.92 + Math.random() * 0.16));
+    }
+    hass.states[id] = mkState(id, u === "kW" ? nv.toFixed(3) : nv.toFixed(1), u, name);
+  }
+  const sum = Object.entries(hass.states)
+    .filter(([id]) => id.includes("_pwr"))
+    .reduce((s, [, st]) => {
+      const n2 = Number(st.state);
+      return s + (isFinite(n2) ? (st.attributes.unit_of_measurement === "kW" ? n2 * 1000 : n2) : 0);
+    }, 0);
+  hass.states["sensor.haus_leistung"] = mkState("sensor.haus_leistung", Math.round(sum + 850), "W", "Haus Leistung");
+  push();
+}, 2000);
+</script>
+</body>
+</html>
