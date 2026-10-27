@@ -7,7 +7,7 @@
  * MIT License
  */
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.2";
 
 // Validated categorical palette (8 slots, light + dark surface variants).
 // Hue order is CVD-safety-optimized — do not reorder or cycle past 8;
@@ -157,7 +157,8 @@ class PowerPieCard extends HTMLElement {
         gap: 8px; padding: 0 16px 12px; container-type: size;
         /* min-height doubles as the fallback height in masonry views, where
            the card gets no definite height and size containment would
-           otherwise collapse the body to 0. */
+           otherwise collapse the body to 0. cqh still resolves to 0 there,
+           so chart heights floor the container height at the same 160px. */
         min-height: 160px;
       }
       ha-card.headless .body { padding-top: 12px; }
@@ -167,7 +168,7 @@ class PowerPieCard extends HTMLElement {
       }
       .chart {
         position: relative; flex: 0 1 auto; min-height: 0; min-width: 0;
-        height: 55cqh; aspect-ratio: 1; max-width: 100%;
+        height: calc(max(100cqh, 160px) * .55); aspect-ratio: 1; max-width: 100%;
       }
       .legend {
         flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%;
@@ -177,7 +178,7 @@ class PowerPieCard extends HTMLElement {
       /* legend: auto — wide card flips to doughnut left, legend right */
       @container (min-aspect-ratio: 6/4) {
         .layout.p-auto { flex-direction: row; justify-content: center; }
-        .layout.p-auto .chart { height: 92cqh; }
+        .layout.p-auto .chart { height: calc(max(100cqh, 160px) * .92); }
         .layout.p-auto .legend { flex: 0 1 auto; width: auto; max-width: 60cqw; justify-content: center; }
       }
       /* legend: explicit placements (top/bottom are the column layout,
@@ -186,7 +187,7 @@ class PowerPieCard extends HTMLElement {
       .layout.p-left { flex-direction: row-reverse; }
       .layout.p-right { flex-direction: row; }
       .layout.p-left, .layout.p-right { justify-content: center; }
-      .layout.p-left .chart, .layout.p-right .chart, .layout.p-none .chart { height: 92cqh; }
+      .layout.p-left .chart, .layout.p-right .chart, .layout.p-none .chart { height: calc(max(100cqh, 160px) * .92); }
       .layout.p-left .legend, .layout.p-right .legend {
         flex: 0 1 auto; width: auto; max-width: 60cqw; justify-content: center;
       }
